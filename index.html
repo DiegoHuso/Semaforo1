@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>Mapa Sensor ESP32 - ThingSpeak</title>
+  <title>🌍 Mapa Sensor ESP32 - ThingSpeak</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <!-- Leaflet para mapas (OpenStreetMap) -->
@@ -11,80 +11,154 @@
 
   <style>
     body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      background: #f9fafb;
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: linear-gradient(135deg, #dbeafe, #f9fafb);
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+      padding: 20px;
     }
-    h2 {
-      color: #0078d7;
+
+    h1 {
+      color: #2563eb;
+      font-size: 1.8em;
+      margin-bottom: 5px;
     }
-    #map {
-      height: 450px;
+
+    h3 {
+      color: #64748b;
+      font-weight: normal;
+      margin-top: 0;
+    }
+
+    #card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 5px 25px rgba(0, 0, 0, 0.1);
+      padding: 20px;
       width: 90%;
-      margin: 20px auto;
-      border-radius: 12px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      max-width: 600px;
+      text-align: center;
+      transition: 0.3s ease;
     }
+
+    #card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+    }
+
+    #map {
+      height: 400px;
+      width: 100%;
+      border-radius: 12px;
+      margin: 10px 0;
+    }
+
     .dato {
-      font-size: 1.3em;
+      font-size: 1.4em;
+      color: #1d4ed8;
       font-weight: bold;
-      color: #0078d7;
+      margin-top: 15px;
+    }
+
+    .hora {
+      color: #6b7280;
+      font-size: 0.9em;
+      margin-top: 3px;
+    }
+
+    .status {
       margin-top: 10px;
+      font-size: 0.9em;
+      color: #059669;
+      transition: color 0.3s ease;
+    }
+
+    .status.error {
+      color: #dc2626;
+    }
+
+    footer {
+      margin-top: 20px;
+      font-size: 0.85em;
+      color: #94a3b8;
     }
   </style>
 </head>
 <body>
-  <h2>Sensor ESP32 - Ubicación fija y dato en vivo</h2>
-  <div id="map"></div>
-  <div class="dato" id="dato">Cargando dato...</div>
+  <h1>🌡️ Monitor de Sensor ESP32</h1>
+  <h3>Datos en vivo desde ThingSpeak</h3>
+
+  <div id="card">
+    <div id="map"></div>
+    <div class="dato" id="dato">Cargando dato...</div>
+    <div class="hora" id="hora"></div>
+    <div class="status" id="estado">Conectando...</div>
+  </div>
+
+  <footer>Hecho con ❤️ y ESP32</footer>
 
   <script>
     // ⚙️ CONFIGURA AQUÍ TUS DATOS
-    const channelID = 3129961;           // ← reemplaza con tu número de canal
-    const readAPIKey = "CDCCJPPT0LVWAC14";      // ← reemplaza con tu API Key de lectura
-    const fieldNum = 1;                        // ← campo de ThingSpeak que usas
+    const channelID = 3129961;           
+    const readAPIKey = "CDCCJPPT0LVWAC14"; 
+    const fieldNum = 1;                        
 
-    // Coordenadas fijas de tu sensor (por ejemplo Lima, Perú)
+    // 🌎 Coordenadas fijas (tu ubicación)
     const lat = -12.047136;
     const lon = -75.199144;
 
-    // Inicializar mapa
+    // 🗺️ Inicializar mapa
     const map = L.map('map').setView([lat, lon], 16);
-
-    // Agregar capa de mapa (OpenStreetMap)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    // Crear marcador (con popup que mostrará el valor)
-    const marker = L.marker([lat, lon]).addTo(map)
-      .bindPopup("Cargando dato del sensor...")
+    // 📍 Marcador personalizado
+    const markerIcon = L.icon({
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854878.png',
+      iconSize: [36, 36],
+      iconAnchor: [18, 36],
+      popupAnchor: [0, -35]
+    });
+
+    const marker = L.marker([lat, lon], { icon: markerIcon }).addTo(map)
+      .bindPopup("Cargando dato...")
       .openPopup();
 
-    // Función para actualizar el valor desde ThingSpeak
+    // 🔄 Actualizar el valor desde ThingSpeak
     async function actualizarDato() {
+      const estado = document.getElementById("estado");
+      estado.textContent = "Actualizando...";
+      estado.classList.remove("error");
+
       try {
         const url = `https://api.thingspeak.com/channels/${channelID}/fields/${fieldNum}/last.json?api_key=${readAPIKey}`;
         const response = await fetch(url);
         const data = await response.json();
+
         const valor = data[`field${fieldNum}`] || "Sin dato";
         const fecha = data.created_at ? new Date(data.created_at).toLocaleString() : "Sin hora";
 
-        // Mostrar el dato debajo del mapa
-        document.getElementById("dato").innerText = `Dato actual: ${valor} (Última actualización: ${fecha})`;
-
-        // Actualizar el texto del marcador en el mapa
+        document.getElementById("dato").textContent = `Valor actual: ${valor}`;
+        document.getElementById("hora").textContent = `Última actualización: ${fecha}`;
         marker.setPopupContent(`<b>Sensor ESP32</b><br>Valor: ${valor}<br>${fecha}`);
+
+        estado.textContent = "Última conexión exitosa ✅";
       } catch (err) {
-        document.getElementById("dato").innerText = "Error al obtener el dato";
+        estado.textContent = "Error al obtener el dato ❌";
+        estado.classList.add("error");
       }
     }
 
-    // Actualizar al inicio y luego cada 5 segundos
+    // ⏱️ Primera actualización y cada 1 minuto
     actualizarDato();
     setInterval(actualizarDato, 60000);
   </script>
 </body>
 </html>
-
