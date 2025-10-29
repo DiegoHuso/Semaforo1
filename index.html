@@ -88,6 +88,7 @@
       display: flex;
       gap: 10px;
       justify-content: center;
+      flex-wrap: wrap;
     }
 
     .btn {
@@ -142,6 +143,12 @@
       color: white;
     }
 
+    .video-frame {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
     footer {
       margin-top: 20px;
       font-size: 0.85em;
@@ -167,15 +174,16 @@
     <div class="card">
       <h3>📹 Video en Vivo</h3>
       <div id="video-container">
-        <div class="loading" id="video-loading">Cargando video...</div>
-        <img id="video-stream" style="display: none;">
+        <div class="loading" id="video-loading">Haz clic en "Iniciar Video"</div>
+        <iframe id="video-stream" class="video-frame" style="display: none;" 
+                allow="camera; microphone" frameborder="0"></iframe>
       </div>
       <div class="video-controls">
         <button class="btn" id="start-video" onclick="iniciarVideo()">▶️ Iniciar Video</button>
         <button class="btn" id="stop-video" onclick="detenerVideo()" disabled>⏹️ Detener Video</button>
-        <button class="btn" id="capture-photo" onclick="capturarFoto()" disabled>📸 Capturar Foto</button>
+        <button class="btn" id="open-new" onclick="abrirEnNuevaVentana()">🔄 Abrir en Nueva Ventana</button>
       </div>
-      <div class="status" id="video-status">Video detenido</div>
+      <div class="status" id="video-status">Listo para iniciar</div>
     </div>
   </div>
 
@@ -197,14 +205,13 @@
 
     // ESP32-CAM - ¡CAMBIAR POR TU IP!
     const esp32camIP = "192.168.1.49";  // ← CAMBIA: IP de tu ESP32-CAM
-    const videoPort = 81;                // ← Puerto del video (normalmente 81)
+    const videoPort = 81;                // ← Puerto del video
 
     // =============================================
     // FIN DE CONFIGURACIÓN
     // =============================================
 
     // Variables para control del video
-    let videoInterval;
     let videoActivo = false;
 
     // 🗺️ Inicializar mapa
@@ -251,18 +258,23 @@
       }
     }
 
-    // 🎥 Funciones para el video
+    // 🎥 Funciones para el video - VERSIÓN CORREGIDA
     function iniciarVideo() {
       const videoStream = document.getElementById('video-stream');
       const videoLoading = document.getElementById('video-loading');
       const videoStatus = document.getElementById('video-status');
       const startBtn = document.getElementById('start-video');
       const stopBtn = document.getElementById('stop-video');
-      const captureBtn = document.getElementById('capture-photo');
 
-      // URL del stream MJPG de ESP32-CAM
-      const videoURL = `http://${esp32camIP}:${videoPort}/stream`;
+      // URL del stream MJPG de ESP32-CAM - DIFERENTES OPCIONES
+      const videoURL = `http://${esp32camIP}`;
+      // También puedes probar estas URLs:
+      // const videoURL = `http://${esp32camIP}:${videoPort}`;
+      // const videoURL = `http://${esp32camIP}:${videoPort}/stream`;
+      // const videoURL = `http://${esp32camIP}/stream`;
 
+      console.log("Intentando cargar video desde:", videoURL);
+      
       videoStream.src = videoURL;
       videoStream.style.display = 'block';
       videoLoading.style.display = 'none';
@@ -270,24 +282,20 @@
       videoStream.onload = function() {
         videoStatus.textContent = "Video activo ✅";
         videoStatus.classList.remove("error");
+        videoActivo = true;
       };
 
       videoStream.onerror = function() {
-        videoStatus.textContent = "Error cargando video ❌";
+        videoStatus.textContent = "Error cargando video. Probando alternativa...";
         videoStatus.classList.add("error");
+        // Intentar con otra URL
+        setTimeout(() => {
+          videoStream.src = `http://${esp32camIP}:${videoPort}`;
+        }, 2000);
       };
 
       startBtn.disabled = true;
       stopBtn.disabled = false;
-      captureBtn.disabled = false;
-      videoActivo = true;
-
-      // Actualizar el stream cada 2 segundos para evitar cache
-      videoInterval = setInterval(() => {
-        if (videoActivo) {
-          videoStream.src = videoURL + '?t=' + new Date().getTime();
-        }
-      }, 2000);
     }
 
     function detenerVideo() {
@@ -296,43 +304,41 @@
       const videoStatus = document.getElementById('video-status');
       const startBtn = document.getElementById('start-video');
       const stopBtn = document.getElementById('stop-video');
-      const captureBtn = document.getElementById('capture-photo');
 
-      clearInterval(videoInterval);
       videoStream.src = '';
       videoStream.style.display = 'none';
       videoLoading.style.display = 'block';
+      videoLoading.textContent = "Video detenido";
       
       videoStatus.textContent = "Video detenido";
       videoStatus.classList.remove("error");
       
       startBtn.disabled = false;
       stopBtn.disabled = true;
-      captureBtn.disabled = true;
       videoActivo = false;
     }
 
-    function capturarFoto() {
-      if (!videoActivo) return;
-      
-      const videoStream = document.getElementById('video-stream');
-      const link = document.createElement('a');
-      link.download = `esp32-cam-${new Date().getTime()}.jpg`;
-      link.href = videoStream.src;
-      link.click();
-      
-      const videoStatus = document.getElementById('video-status');
-      videoStatus.textContent = "Foto capturada 📸";
-      setTimeout(() => {
-        if (videoActivo) {
-          videoStatus.textContent = "Video activo ✅";
-        }
-      }, 2000);
+    function abrirEnNuevaVentana() {
+      // Abrir el stream en una nueva ventana/pestaña
+      const videoURL = `http://${esp32camIP}`;
+      window.open(videoURL, 'ESP32-CAM', 'width=800,height=600');
     }
 
     // ⏱️ Inicializar
     actualizarDato();
     setInterval(actualizarDato, 60000); // Actualizar datos cada 1 minuto
+
+    // Probar automáticamente si el servidor está activo
+    window.addEventListener('load', function() {
+      fetch(`http://${esp32camIP}`, { mode: 'no-cors' })
+        .then(() => {
+          document.getElementById('video-status').textContent = "Servidor de cámara detectado ✅";
+        })
+        .catch(() => {
+          document.getElementById('video-status').textContent = "Servidor de cámara no accesible ❌";
+          document.getElementById('video-status').classList.add("error");
+        });
+    });
   </script>
 </body>
 </html>
