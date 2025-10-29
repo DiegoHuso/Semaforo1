@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>🌍 Mapa Sensor ESP32 - ThingSpeak</title>
+  <title>🌍 Mapa Sensor ESP32 + Cámara</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <!-- Leaflet para mapas (OpenStreetMap) -->
@@ -35,27 +35,79 @@
       margin-top: 0;
     }
 
-    #card {
+    .container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+      max-width: 1200px;
+      width: 100%;
+    }
+
+    .card {
       background: white;
       border-radius: 16px;
       box-shadow: 0 5px 25px rgba(0, 0, 0, 0.1);
       padding: 20px;
-      width: 90%;
-      max-width: 600px;
       text-align: center;
       transition: 0.3s ease;
+      flex: 1;
+      min-width: 300px;
     }
 
-    #card:hover {
+    .card:hover {
       transform: translateY(-3px);
       box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
     }
 
     #map {
-      height: 400px;
+      height: 300px;
       width: 100%;
       border-radius: 12px;
       margin: 10px 0;
+    }
+
+    #video-container {
+      height: 300px;
+      width: 100%;
+      border-radius: 12px;
+      margin: 10px 0;
+      background: #000;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #video-stream {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .video-controls {
+      margin-top: 10px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9em;
+      transition: background 0.3s ease;
+    }
+
+    .btn:hover {
+      background: #1d4ed8;
+    }
+
+    .btn:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
     }
 
     .dato {
@@ -82,6 +134,14 @@
       color: #dc2626;
     }
 
+    .loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+    }
+
     footer {
       margin-top: 20px;
       font-size: 0.85em;
@@ -90,27 +150,62 @@
   </style>
 </head>
 <body>
-  <h1>🌡️ Monitor de Sensor ESP32</h1>
-  <h3>Datos en vivo desde ThingSpeak</h3>
+  <h1>🌡️ Monitor de Sensor ESP32 + Cámara</h1>
+  <h3>Datos en vivo y video desde ESP32-CAM</h3>
 
-  <div id="card">
-    <div id="map"></div>
-    <div class="dato" id="dato">Cargando dato...</div>
-    <div class="hora" id="hora"></div>
-    <div class="status" id="estado">Conectando...</div>
+  <div class="container">
+    <!-- Tarjeta del Mapa -->
+    <div class="card">
+      <h3>🗺️ Ubicación del Sensor</h3>
+      <div id="map"></div>
+      <div class="dato" id="dato">Cargando dato...</div>
+      <div class="hora" id="hora"></div>
+      <div class="status" id="estado">Conectando...</div>
+    </div>
+
+    <!-- Tarjeta de la Cámara -->
+    <div class="card">
+      <h3>📹 Video en Vivo</h3>
+      <div id="video-container">
+        <div class="loading" id="video-loading">Cargando video...</div>
+        <img id="video-stream" style="display: none;">
+      </div>
+      <div class="video-controls">
+        <button class="btn" id="start-video" onclick="iniciarVideo()">▶️ Iniciar Video</button>
+        <button class="btn" id="stop-video" onclick="detenerVideo()" disabled>⏹️ Detener Video</button>
+        <button class="btn" id="capture-photo" onclick="capturarFoto()" disabled>📸 Capturar Foto</button>
+      </div>
+      <div class="status" id="video-status">Video detenido</div>
+    </div>
   </div>
 
   <footer>Hecho con ❤️ y ESP32</footer>
 
   <script>
+    // =============================================
     // ⚙️ CONFIGURA AQUÍ TUS DATOS
+    // =============================================
+    
+    // ThingSpeak
     const channelID = 3138412;           
     const readAPIKey = "GSVI1FTY4OB8BCWH"; 
     const fieldNum = 1;                        
 
-    // 🌎 Coordenadas fijas (tu ubicación)
+    // Coordenadas
     const lat = -12.047136;
     const lon = -75.199144;
+
+    // ESP32-CAM - ¡CAMBIAR POR TU IP!
+    const esp32camIP = "192.168.1.49";  // ← CAMBIA: IP de tu ESP32-CAM
+    const videoPort = 81;                // ← Puerto del video (normalmente 81)
+
+    // =============================================
+    // FIN DE CONFIGURACIÓN
+    // =============================================
+
+    // Variables para control del video
+    let videoInterval;
+    let videoActivo = false;
 
     // 🗺️ Inicializar mapa
     const map = L.map('map').setView([lat, lon], 16);
@@ -156,11 +251,88 @@
       }
     }
 
-    // ⏱️ Primera actualización y cada 1 minuto
+    // 🎥 Funciones para el video
+    function iniciarVideo() {
+      const videoStream = document.getElementById('video-stream');
+      const videoLoading = document.getElementById('video-loading');
+      const videoStatus = document.getElementById('video-status');
+      const startBtn = document.getElementById('start-video');
+      const stopBtn = document.getElementById('stop-video');
+      const captureBtn = document.getElementById('capture-photo');
+
+      // URL del stream MJPG de ESP32-CAM
+      const videoURL = `http://${esp32camIP}:${videoPort}/stream`;
+
+      videoStream.src = videoURL;
+      videoStream.style.display = 'block';
+      videoLoading.style.display = 'none';
+      
+      videoStream.onload = function() {
+        videoStatus.textContent = "Video activo ✅";
+        videoStatus.classList.remove("error");
+      };
+
+      videoStream.onerror = function() {
+        videoStatus.textContent = "Error cargando video ❌";
+        videoStatus.classList.add("error");
+      };
+
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      captureBtn.disabled = false;
+      videoActivo = true;
+
+      // Actualizar el stream cada 2 segundos para evitar cache
+      videoInterval = setInterval(() => {
+        if (videoActivo) {
+          videoStream.src = videoURL + '?t=' + new Date().getTime();
+        }
+      }, 2000);
+    }
+
+    function detenerVideo() {
+      const videoStream = document.getElementById('video-stream');
+      const videoLoading = document.getElementById('video-loading');
+      const videoStatus = document.getElementById('video-status');
+      const startBtn = document.getElementById('start-video');
+      const stopBtn = document.getElementById('stop-video');
+      const captureBtn = document.getElementById('capture-photo');
+
+      clearInterval(videoInterval);
+      videoStream.src = '';
+      videoStream.style.display = 'none';
+      videoLoading.style.display = 'block';
+      
+      videoStatus.textContent = "Video detenido";
+      videoStatus.classList.remove("error");
+      
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      captureBtn.disabled = true;
+      videoActivo = false;
+    }
+
+    function capturarFoto() {
+      if (!videoActivo) return;
+      
+      const videoStream = document.getElementById('video-stream');
+      const link = document.createElement('a');
+      link.download = `esp32-cam-${new Date().getTime()}.jpg`;
+      link.href = videoStream.src;
+      link.click();
+      
+      const videoStatus = document.getElementById('video-status');
+      videoStatus.textContent = "Foto capturada 📸";
+      setTimeout(() => {
+        if (videoActivo) {
+          videoStatus.textContent = "Video activo ✅";
+        }
+      }, 2000);
+    }
+
+    // ⏱️ Inicializar
     actualizarDato();
-    setInterval(actualizarDato, 60000);
+    setInterval(actualizarDato, 60000); // Actualizar datos cada 1 minuto
   </script>
 </body>
 </html>
-
-
